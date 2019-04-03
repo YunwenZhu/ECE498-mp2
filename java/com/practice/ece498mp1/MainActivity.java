@@ -35,7 +35,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private String outputFile;
     private boolean firstTime = true;
 
-    private double ema = 10.45; //hard code
+    private double ema = 10.47; //hard code
     private double prev = 0.0;
     private int step = 0;
     private double dis = 0.0;
@@ -89,6 +89,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     @Override
     public void onSensorChanged(SensorEvent event) {
+
         if (recording_) {
             Sensor sensor = event.sensor;
 
@@ -126,7 +127,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 } else if (firstData) {
 
                     float z = Math.abs(event.values[2]);
-                    double timestampSec = timestampE / 1000000000.0;
+                    double timestampSec = event.timestamp / 1000000000.0;
                     double dt = timestampSec - prevTimestamp;
                     double integral = (dt * ((z + previousVel) / 2)) * 180 / Math.PI;
 
@@ -172,12 +173,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         }
 
                     }
-                    degree.setText("Degrees Turned:" + degreesTurned + " Current Angle:" + angle);
-                    try {
-                        printer.printRecord(timestamp.getTime(), angle);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
+                    degree.setText("Degrees Turned:" + degreesTurned +
+                            "Actual Angle:" + angle);
+//                    try {
+//                        printer.printRecord(timestamp.getTime(), angle);
+//                    } catch (IOException e) {
+//                        e.printStackTrace();
+//                    }
 
                     previousVel = z;
                     prevTimestamp = timestampSec;
@@ -188,7 +190,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             timestamp = new Timestamp(System.currentTimeMillis());
             Log.i(TAG, "log to file");
             try {
-                printer.printRecord(timestamp.getTime(), Accel_x, Accel_y, Accel_z);
+                printer.printRecord(timestamp.getTime(), Accel_x, Accel_y, Accel_z, angle, degreesTurned);
             } catch (IOException ex) {
                 ex.printStackTrace();
             }
