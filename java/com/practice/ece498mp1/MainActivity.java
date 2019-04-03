@@ -26,8 +26,8 @@ import org.apache.commons.csv.*;
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
     private static final String TAG = "MainActivity";
     private SensorManager sensorManager;
-    private Sensor accelerometer, gyroscope;
-    private double Accel_x, Accel_y, Accel_z;
+    private Sensor accelerometer, gyroscope, magneticField, lightSensor;
+    private double Accel_x, Accel_y, Accel_z, Gyro_x, Gyro_y, Gyro_z, Mag_x, Mag_y, Mag_z, lightIntensity;
     private Timestamp timestamp;
     private HashSet<String> s = new HashSet<>();
     private CSVPrinter printer;
@@ -35,7 +35,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private String outputFile;
     private boolean firstTime = true;
 
-    private double ema = 10.47; //hard code
+    private double ema = 10.3; //hard code
     private double prev = 0.0;
     private int step = 0;
     private double dis = 0.0;
@@ -53,6 +53,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     int ind = 0;
     float checkDegreesTurned, degreesTurned, angle;
     double timestampE;
+
+    long startTime = 0;
+    boolean firstTimeStamp = true;
 
 
 
@@ -72,7 +75,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
 
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
-        sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_NORMAL);
+        sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_UI);
+
+        magneticField = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+        sensorManager.registerListener(this, magneticField, SensorManager.SENSOR_DELAY_NORMAL);
+        Log.d(TAG, "onCreate: Registered magneticField listener");
+
+        lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
+        sensorManager.registerListener(this, lightSensor, SensorManager.SENSOR_DELAY_NORMAL);
+        Log.d(TAG, "onCreate: Registered lightSensor listener");
 
         Log.d(TAG, "onCreate: Registered accelerometer listener");
 
@@ -91,6 +102,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     public void onSensorChanged(SensorEvent event) {
 
         if (recording_) {
+            if(firstTimeStamp){
+                startTime = event.timestamp;
+                firstTimeStamp = false;
+            }
+
             Sensor sensor = event.sensor;
 
             if (sensor.getType() == Sensor.TYPE_ACCELEROMETER && !s.contains("Accel")) {
@@ -99,9 +115,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 Accel_y = event.values[1];
                 Accel_z = event.values[2];
 
-                Log.d(TAG, "acccccce");
-
                 if(firstTime){
+
                     prev = Math.sqrt(Math.pow(Accel_x, 2) + Math.pow(Accel_y, 2) + Math.pow(Accel_z, 2));
                     firstTime = false;
                 }
@@ -118,6 +133,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     prev = cur;
                 }
             } else if (sensor.getType() == Sensor.TYPE_GYROSCOPE && !s.contains("Gyro")) {
+                Gyro_x = event.values[0];
+                Gyro_y = event.values[1];
+                Gyro_z = event.values[2];
                 if (!firstData) {
 
                     previousVel = Math.abs(event.values[2]);
@@ -173,13 +191,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         }
 
                     }
+
                     degree.setText("Degrees Turned:" + degreesTurned +
                             "Actual Angle:" + angle);
-//                    try {
-//                        printer.printRecord(timestamp.getTime(), angle);
-//                    } catch (IOException e) {
-//                        e.printStackTrace();
-//                    }
 
                     previousVel = z;
                     prevTimestamp = timestampSec;
@@ -187,10 +201,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 }
             }
 
+            else if (sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD && !s.contains("Mag")) {
+                Mag_x = event.values[0];
+                Mag_y = event.values[1];
+                Mag_z = event.values[2];
+            } else if (sensor.getType() == Sensor.TYPE_LIGHT && !s.contains("Light")) {
+                lightIntensity = event.values[0];
+            }
+
             timestamp = new Timestamp(System.currentTimeMillis());
             Log.i(TAG, "log to file");
             try {
-                printer.printRecord(timestamp.getTime(), Accel_x, Accel_y, Accel_z, angle, degreesTurned);
+                printer.printRecord(event.timestamp - startTime, angle, degreesTurned, Accel_x, Accel_y, Accel_z, Gyro_x, Gyro_y, Gyro_z, Mag_x, Mag_y, Mag_z, lightIntensity);
             } catch (IOException ex) {
                 ex.printStackTrace();
             }
@@ -219,7 +241,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             try {
                 DateFormat df = new SimpleDateFormat("YYYY-MM-DD-HH:mm:ss");
                 outputFile = getExternalFilesDir(null) + t.getText().toString() + "-" + df.format(new Date()) + ".csv";
-                printer = new CSVPrinter(new FileWriter(outputFile), CSVFormat.DEFAULT.withHeader("Time Stamp", "Accel_x", "Accel_y", "Accel_z"));
+                printer = new CSVPrinter(new FileWriter(outputFile), CSVFormat.DEFAULT.withHeader("Time Stamp", "angle", "degreesTurned", "Accel_x", "Accel_y", "Accel_z", "Gyro_x", "Gyro_y", "Gyro_z", "Mag_x", "Mag_y", "Mag_z", "lightIntensity"));
             } catch (IOException ex) {
                 Log.e(TAG, ex.toString());
                 throw ex;
@@ -229,9 +251,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             t.setEnabled(false);
             Log.i(TAG, "Start recording");
         } else {
-            step_count.setText("Step: " + 0);
-            distance.setText("Distance:" + 0.0 + "m");
-            degree.setText("Degrees Turned: 0  Current Angle: 0");
+//            step_count.setText("Step: " + 0);
+//            distance.setText("Distance:" + 0.0 + "m");
+//            degree.setText("Degrees Turned: 0  Current Angle: 0");
             printer.close(true);
             b.setText("Start");
             t.setEnabled(true);
