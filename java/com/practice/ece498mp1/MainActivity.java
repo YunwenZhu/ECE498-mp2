@@ -26,7 +26,7 @@ import org.apache.commons.csv.*;
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
     private static final String TAG = "MainActivity";
     private SensorManager sensorManager;
-    private Sensor accelerometer, sound, wifi;
+    private Sensor accelerometer, gyroscope;
     private double Accel_x, Accel_y, Accel_z;
     private Timestamp timestamp;
     private HashSet<String> s = new HashSet<>();
@@ -41,7 +41,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private double dis = 0.0;
     private double dis_per_step = 0.35;
 
-    TextView xValue, yValue, zValue, step_count, distance;
+    TextView degree, step_count, distance;
+
+    private float previousVel = 0;
+    private double prevTimestamp = 0;
+    private Boolean firstData = false;
+
+    int bufferSize = 18;
+    double[] checkDrift = new double[bufferSize];
+    float[] gyroSign = new float[bufferSize];
+    int ind = 0;
+    float checkDegreesTurned, degreesTurned, angle;
+    double timestampE;
 
 
 
@@ -50,9 +61,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        xValue = (TextView) findViewById(R.id.xValue);
-        yValue = (TextView) findViewById(R.id.yValue);
-        zValue = (TextView) findViewById(R.id.zValue);
+        degree = (TextView) findViewById(R.id.degree);
         step_count = (TextView) findViewById(R.id.step_count);
         distance = (TextView) findViewById(R.id.distance);
 
@@ -61,6 +70,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+
+        gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_NORMAL);
+
         Log.d(TAG, "onCreate: Registered accelerometer listener");
 
         Timestamp startTime;
@@ -85,9 +98,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 Accel_y = event.values[1];
                 Accel_z = event.values[2];
 
-                xValue.setText("Accel_x:" + Accel_x);
-                yValue.setText("Accel_y:" + Accel_y);
-                zValue.setText("Accel_z:" + Accel_z);
                 Log.d(TAG, "acccccce");
 
                 if(firstTime){
@@ -106,7 +116,73 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     distance.setText("Distance:" + dis + "m");
                     prev = cur;
                 }
+            } else if (sensor.getType() == Sensor.TYPE_GYROSCOPE && !s.contains("Gyro")) {
+                if (!firstData) {
 
+                    previousVel = Math.abs(event.values[2]);
+                    prevTimestamp = event.timestamp / 1000000000.0;
+                    firstData = true;
+
+                } else if (firstData) {
+
+                    float z = Math.abs(event.values[2]);
+                    double timestampSec = timestampE / 1000000000.0;
+                    double dt = timestampSec - prevTimestamp;
+                    double integral = (dt * ((z + previousVel) / 2)) * 180 / Math.PI;
+
+                    Log.e("INTEGRAL: ", integral + " dtime: " + dt);
+                    checkDegreesTurned += (dt * ((z + previousVel) / 2)) * 180 / Math.PI;
+                    float accumulateAngle = 0;
+
+                    if (ind < bufferSize) {
+                        gyroSign[ind] = event.values[2];
+                        checkDrift[ind] = integral;
+                        ind++;
+                    } else {
+                        for (int i = 0; i < bufferSize; i++) {
+                            if (gyroSign[i] < 0) {
+                                accumulateAngle += checkDrift[i];
+                            } else {
+                                accumulateAngle -= checkDrift[i];
+                            }
+                            gyroSign[i] = 0;
+                            checkDrift[i] = 0;
+                        }
+                        if (accumulateAngle > 4 || accumulateAngle < -4) {
+                            degreesTurned += checkDegreesTurned;
+                            Log.e("check if real", "ITS GOOD " + accumulateAngle + "   " + checkDegreesTurned);
+
+                        } else {
+                            Log.e("check if real", "____" + accumulateAngle + "   " + checkDegreesTurned);
+
+                        }
+
+                        ind = 0;
+                        checkDegreesTurned = 0;
+
+
+                        if (accumulateAngle < 0) {
+                            angle = (angle + accumulateAngle) % 360;
+                            if (angle < 0) {
+                                angle = 360 + angle;
+                            }
+
+                        } else if (accumulateAngle >= 0) {
+                            angle = (angle + accumulateAngle) % 360;
+                        }
+
+                    }
+                    degree.setText("Degrees Turned:" + degreesTurned + " Current Angle:" + angle);
+                    try {
+                        printer.printRecord(timestamp.getTime(), angle);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+
+                    previousVel = z;
+                    prevTimestamp = timestampSec;
+
+                }
             }
 
             timestamp = new Timestamp(System.currentTimeMillis());
@@ -117,6 +193,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 ex.printStackTrace();
             }
         }
+    }
+
+    public void cleanVariables(){
+        ind = 0;
+        degreesTurned = 0;
+        checkDegreesTurned = 0;
+        firstData = false;
+        step = 0;
+        dis = 0.0;
     }
 
 
@@ -137,14 +222,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 Log.e(TAG, ex.toString());
                 throw ex;
             }
-            step = 0;
-            dis = 0.0;
+            cleanVariables();
             b.setText("Stop");
             t.setEnabled(false);
             Log.i(TAG, "Start recording");
         } else {
             step_count.setText("Step: " + 0);
             distance.setText("Distance:" + 0.0 + "m");
+            degree.setText("Degrees Turned: 0  Current Angle: 0");
             printer.close(true);
             b.setText("Start");
             t.setEnabled(true);
